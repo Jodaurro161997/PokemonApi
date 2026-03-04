@@ -178,9 +178,8 @@ public class PokemonPresenter {
                 // para mostrar Pokémon relacionados (ej: mew → mew, mewtwo, mewostic…)
                 if (chain.size() == 1) {
                     String prefix = pokemon.name().toLowerCase();
-                    // Usar solo los primeros 3 caracteres para encontrar familia amplia
-                    String shortPrefix = prefix.length() > 3 ? prefix.substring(0, 3) : prefix;
-                    List<String> related = apiService.findByPrefix(shortPrefix);
+                    // Buscar Pokémon que contengan el nombre como substring
+                    List<String> related = apiService.findByPrefix(prefix);
                     if (related.size() > 1) {
                         List<Pokemon> relatedPokemon = new java.util.ArrayList<>();
                         relatedPokemon.add(pokemon); // El actual siempre primero

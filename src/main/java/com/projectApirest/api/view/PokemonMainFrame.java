@@ -21,6 +21,20 @@ import java.util.concurrent.Executors;
 
 public class PokemonMainFrame extends JFrame implements PokemonView {
 
+    /** update() es el método real que Swing usa para borrar la ventana con blanco
+     *  antes de pintar. Sobreescribirlo y llamar paint() directamente elimina el flash. */
+    @Override
+    public void update(Graphics g) {
+        paint(g);
+    }
+
+    @Override
+    public void paint(Graphics g) {
+        g.setColor(new Color(12, 12, 22));
+        g.fillRect(0, 0, getWidth(), getHeight());
+        super.paint(g);
+    }
+
     // ── Paleta ────────────────────────────────────────────────────────────────
     private static final Color BG_DARK        = new Color(12,  12,  22);
     private static final Color BG_CARD        = new Color(22,  22,  38);
@@ -42,7 +56,7 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         TYPE_COLORS.put("ice",      new Color(130, 210, 215));
         TYPE_COLORS.put("dragon",   new Color(100,  50, 240));
         TYPE_COLORS.put("dark",     new Color( 70,  55,  45));
-        TYPE_COLORS.put("normal",   new Color(180, 155,  95));
+        TYPE_COLORS.put("normal",   new Color(180, 155,  95));  // tierra/beige
         TYPE_COLORS.put("fighting", new Color(195,  45,  38));
         TYPE_COLORS.put("poison",   new Color(155,  55, 160));
         TYPE_COLORS.put("ground",   new Color(215, 180,  90));
@@ -77,7 +91,7 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         TYPE_NAMES.put("fairy",    "Hada");
     }
 
-    // Iconos emoji por tipo — más grandes ahora que son tarjetas verticales
+    // Iconos emoji por tipo
     private static final Map<String, String> TYPE_ICONS = new HashMap<>();
     static {
         TYPE_ICONS.put("fire",     "🔥");
@@ -134,9 +148,21 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
     public PokemonMainFrame(ApiService apiService) {
         super("Pokédex — Java MVP");
         this.apiService = apiService;
+
+        // Oscurecer TODA la jerarquía de capas de Swing antes del primer render
+        // JFrame → JRootPane → JLayeredPane → JContentPane → nuestros paneles
+        Color dark = new Color(12, 12, 22);
+        setBackground(dark);
+        getContentPane().setBackground(dark);
+        getRootPane().setBackground(dark);
+        getRootPane().setOpaque(true);
+        getLayeredPane().setBackground(dark);
+        getLayeredPane().setOpaque(true);
+
         buildUI();
         pack();
-        setMinimumSize(new Dimension(1200, 760));
+        setMinimumSize(new Dimension(1150, 720));
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
     }
@@ -200,6 +226,16 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         split.setDividerSize(3);
         split.setBorder(null);
         split.setBackground(BG_DARK);
+        split.setOpaque(true);
+        // Quitar el borde y fondo del divider
+        split.setUI(new javax.swing.plaf.basic.BasicSplitPaneUI() {
+            @Override public javax.swing.plaf.basic.BasicSplitPaneDivider createDefaultDivider() {
+                javax.swing.plaf.basic.BasicSplitPaneDivider d = super.createDefaultDivider();
+                d.setBackground(BG_DARK);
+                d.setBorder(null);
+                return d;
+            }
+        });
         return split;
     }
 
@@ -265,20 +301,21 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
 
     private JPanel buildDetailPanel() {
         contentPanel = new JPanel(new BorderLayout()) {
+            @Override public boolean isOpaque() { return true; }
             @Override protected void paintComponent(Graphics g) {
+                // Siempre pintar fondo sólido primero — evita el flash blanco al inicio
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setColor(BG_DARK);
                 g2.fillRect(0, 0, getWidth(), getHeight());
-                if (bgAlpha > 0) {
-                    Color tint = new Color(bgTo.getRed(), bgTo.getGreen(), bgTo.getBlue(),
-                            Math.min(255, (int)(bgAlpha * 50)));
-                    g2.setColor(tint);
+                // Tint de tipo solo cuando hay animación activa
+                if (bgAlpha > 0f && bgTimer != null) {
+                    int alpha = Math.min(255, (int)(bgAlpha * 50));
+                    g2.setColor(new Color(bgTo.getRed(), bgTo.getGreen(), bgTo.getBlue(), alpha));
                     g2.fillRect(0, 0, getWidth(), getHeight());
                 }
                 g2.dispose();
             }
         };
-        contentPanel.setOpaque(false);
         contentPanel.add(buildDetailHeader(),    BorderLayout.NORTH);
         contentPanel.add(buildDetailBody(),      BorderLayout.CENTER);
         contentPanel.add(buildEvolutionStrip(),  BorderLayout.SOUTH);
@@ -303,8 +340,8 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         left.add(pokemonNameLabel);
         h.add(left, BorderLayout.WEST);
 
-        pokePrevBtn = arrowNavBtn("←");
-        pokeNextBtn = arrowNavBtn("→");
+        pokePrevBtn = arrowNavBtn(true);
+        pokeNextBtn = arrowNavBtn(false);
         pokePrevBtn.addActionListener(e -> { if (currentPokemonId > 1) presenter.navigatePrevious(currentPokemonId); });
         pokeNextBtn.addActionListener(e -> { if (currentPokemonId > 0) presenter.navigateNext(currentPokemonId); });
         JPanel navP = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
@@ -314,11 +351,6 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         return h;
     }
 
-    /**
-     * Layout del cuerpo:
-     *  - Columna IZQUIERDA (40%): imagen grande + tipos verticales
-     *  - Columna DERECHA  (60%): info básica (fila) + stats + descripción   ← todo vertical
-     */
     private JPanel buildDetailBody() {
         JPanel body = new JPanel(new GridBagLayout());
         body.setOpaque(false);
@@ -328,89 +360,80 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         g.fill   = GridBagConstraints.BOTH;
         g.weighty = 1;
 
-        // Columna izquierda: imagen + tipos en vertical
-        g.gridx = 0; g.weightx = 0.38; g.insets = new Insets(0, 0, 0, 24);
+        // Columna izquierda: imagen grande con fondo de tipo
+        g.gridx = 0; g.weightx = 0.40; g.insets = new Insets(0, 0, 0, 28);
         body.add(buildImageColumn(), g);
 
-        // Columna derecha: info básica + stats + descripción (todo vertical)
-        g.gridx = 1; g.weightx = 0.62; g.insets = new Insets(0, 0, 0, 0);
-        body.add(buildRightColumn(), g);
+        // Columna derecha: stats + descripción
+        g.gridx = 1; g.weightx = 0.60; g.insets = new Insets(0, 0, 0, 0);
+        body.add(buildStatsColumn(), g);
         return body;
     }
 
-    // ── Columna izquierda: imagen + tipos verticales ──────────────────────────
+    // Columna izquierda ───────────────────────────────────────────────────────
 
     private JPanel buildImageColumn() {
-        JPanel col = new JPanel(new BorderLayout(0, 14));
-        col.setOpaque(false);
-
-        // Imagen grande
-        pokemonImageLabel = new AnimatedGifLabel(300, 300);
-        col.add(pokemonImageLabel, BorderLayout.CENTER);
-
-        // Badges de tipo — ahora en panel vertical (BoxLayout Y)
-        typesPanel = new JPanel();
-        typesPanel.setLayout(new BoxLayout(typesPanel, BoxLayout.Y_AXIS));
-        typesPanel.setOpaque(false);
-        typesPanel.setBorder(new EmptyBorder(4, 0, 4, 0));
-
-        JScrollPane typesScroll = new JScrollPane(typesPanel);
-        typesScroll.setOpaque(false);
-        typesScroll.getViewport().setOpaque(false);
-        typesScroll.setBorder(null);
-        typesScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        typesScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
-
-        col.add(typesScroll, BorderLayout.SOUTH);
-        return col;
-    }
-
-    // ── Columna derecha: info básica + stats + descripción (todo vertical) ────
-
-    private JPanel buildRightColumn() {
         JPanel col = new JPanel();
         col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
         col.setOpaque(false);
 
-        // 1) Fila de info básica (altura, peso, exp)
+        // Imagen grande con halo de tipo atrás
+        pokemonImageLabel = new AnimatedGifLabel(310, 310);
+        pokemonImageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        col.add(pokemonImageLabel);
+        col.add(Box.createVerticalStrut(14));
+
+        // Badges de tipo
+        typesPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        typesPanel.setOpaque(false);
+        typesPanel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        col.add(typesPanel);
+        col.add(Box.createVerticalStrut(16));
+
+        // Tarjetas de info básica
         JPanel infoRow = new JPanel(new GridLayout(1, 3, 10, 0));
         infoRow.setOpaque(false);
-        infoRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        infoRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
+        infoRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        infoRow.setMaximumSize(new Dimension(330, 72));
         heightLabel = infoCard("Altura", "—");
         weightLabel = infoCard("Peso",   "—");
         expLabel    = infoCard("Exp.",   "—");
-        infoRow.add(heightLabel);
-        infoRow.add(weightLabel);
-        infoRow.add(expLabel);
+        infoRow.add(heightLabel); infoRow.add(weightLabel); infoRow.add(expLabel);
         col.add(infoRow);
-        col.add(Box.createVerticalStrut(20));
+        return col;
+    }
 
-        // 2) Título de estadísticas
+    // Columna derecha ─────────────────────────────────────────────────────────
+
+    private JPanel buildStatsColumn() {
+        JPanel col = new JPanel(new BorderLayout(0, 16));
+        col.setOpaque(false);
+
+        // Título + barras
+        JPanel statsWrapper = new JPanel(new BorderLayout());
+        statsWrapper.setOpaque(false);
         JLabel statsTitle = new JLabel("Estadísticas Base");
         statsTitle.setFont(new Font("SansSerif", Font.BOLD, 15));
         statsTitle.setForeground(TEXT_PRIMARY);
-        statsTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        statsTitle.setBorder(new EmptyBorder(0, 0, 10, 0));
-        col.add(statsTitle);
+        statsTitle.setBorder(new EmptyBorder(0, 0, 14, 0));
+        statsWrapper.add(statsTitle, BorderLayout.NORTH);
 
-        // 3) Panel de stats
         statsPanel = new JPanel();
         statsPanel.setLayout(new BoxLayout(statsPanel, BoxLayout.Y_AXIS));
         statsPanel.setOpaque(false);
-        statsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        col.add(statsPanel);
-        col.add(Box.createVerticalStrut(20));
+        statsWrapper.add(statsPanel, BorderLayout.CENTER);
+        col.add(statsWrapper, BorderLayout.CENTER);
 
-        // 4) Título de descripción
+        // Descripción abajo de las stats (columna derecha)
+        JPanel descWrapper = new JPanel(new BorderLayout());
+        descWrapper.setOpaque(false);
+
         JLabel descTitle = new JLabel("Descripción");
         descTitle.setFont(new Font("SansSerif", Font.BOLD, 14));
         descTitle.setForeground(TEXT_PRIMARY);
-        descTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
         descTitle.setBorder(new EmptyBorder(0, 0, 8, 0));
-        col.add(descTitle);
+        descWrapper.add(descTitle, BorderLayout.NORTH);
 
-        // 5) Caja de descripción
         descriptionLabel = new JTextArea("Selecciona un Pokémon.");
         descriptionLabel.setFont(new Font("Serif", Font.ITALIC, 14));
         descriptionLabel.setForeground(new Color(195, 195, 225));
@@ -422,13 +445,10 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         descriptionLabel.setFocusable(false);
         descriptionLabel.setBorder(new CompoundBorder(
                 BorderFactory.createLineBorder(BORDER_COLOR, 1),
-                new EmptyBorder(12, 14, 12, 14)));
-        descriptionLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
-        descriptionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        col.add(descriptionLabel);
+                new EmptyBorder(10, 14, 10, 14)));
+        descWrapper.add(descriptionLabel, BorderLayout.CENTER);
+        col.add(descWrapper, BorderLayout.SOUTH);
 
-        // Glue para empujar contenido hacia arriba si sobra espacio
-        col.add(Box.createVerticalGlue());
         return col;
     }
 
@@ -480,12 +500,8 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         pokemonIdLabel.setText("#%03d".formatted(p.id()));
         pokemonNameLabel.setText(p.displayName());
 
-        // Tipos: layout VERTICAL con tarjetas grandes
         typesPanel.removeAll();
-        for (String t : p.types()) {
-            typesPanel.add(typeBadgeVertical(t));
-            typesPanel.add(Box.createVerticalStrut(8));
-        }
+        for (String t : p.types()) typesPanel.add(typeBadge(t));
         typesPanel.revalidate(); typesPanel.repaint();
 
         updateInfoCard(heightLabel, "Altura", "%.1f m".formatted(p.height() / 10.0));
@@ -501,6 +517,7 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         Color color2 = p.types().size() > 1
                 ? TYPE_COLORS.getOrDefault(p.types().get(1), color1) : color1;
 
+        // Halo de tipo en la imagen
         pokemonImageLabel.setTypeColors(color1, color2);
 
         statsPanel.removeAll();
@@ -573,7 +590,7 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         currentPokemonId = -1;
         pokemonIdLabel.setText("#???");
         pokemonNameLabel.setText("Selecciona un Pokémon");
-        typesPanel.removeAll(); typesPanel.revalidate(); typesPanel.repaint();
+        typesPanel.removeAll(); typesPanel.repaint();
         statsPanel.removeAll(); statsPanel.repaint();
         pokemonImageLabel.showPlaceholder("🎮");
         pokemonImageLabel.setTypeColors(BG_CARD, BG_CARD);
@@ -582,65 +599,7 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         updateInfoCard(expLabel,    "Exp.",   "—");
         descriptionLabel.setText("Selecciona un Pokémon.");
         evolutionPanel.removeAll(); evolutionPanel.revalidate(); evolutionPanel.repaint();
-        animateBg(BG_DARK);
-    }
-
-    // ── Tarjeta de tipo VERTICAL (icono grande + nombre abajo) ───────────────
-
-    /**
-     * Tarjeta de tipo en formato vertical:
-     *  ┌─────────────┐
-     *  │    🔥  (28) │
-     *  │    Fuego    │
-     *  └─────────────┘
-     */
-    private JPanel typeBadgeVertical(String type) {
-        Color bg    = TYPE_COLORS.getOrDefault(type.toLowerCase(), new Color(100, 100, 130));
-        String icon = TYPE_ICONS.getOrDefault(type.toLowerCase(), "");
-        String name = TYPE_NAMES.getOrDefault(type.toLowerCase(), type.toUpperCase());
-
-        JPanel card = new JPanel() {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                // Fondo semi-transparente del color del tipo
-                Color bgAlpha = new Color(bg.getRed(), bg.getGreen(), bg.getBlue(), 200);
-                g2.setColor(bgAlpha);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 14, 14);
-                // Borde más brillante
-                g2.setColor(bg.brighter());
-                g2.setStroke(new BasicStroke(1.5f));
-                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 14, 14);
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setOpaque(false);
-        card.setMaximumSize(new Dimension(280, 72));
-        card.setPreferredSize(new Dimension(270, 68));
-        card.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.setBorder(new EmptyBorder(8, 14, 8, 14));
-
-        // Icono grande
-        JLabel iconLabel = new JLabel(icon.isEmpty() ? "?" : icon);
-        iconLabel.setFont(new Font("SansSerif", Font.PLAIN, 28));   // ← 28pt: grande
-        iconLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        // Nombre del tipo
-        JLabel nameLabel = new JLabel(name);
-        nameLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-        nameLabel.setForeground(Color.WHITE);
-        nameLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        // Fila horizontal: icono + nombre lado a lado
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        row.setOpaque(false);
-        row.add(iconLabel);
-        row.add(nameLabel);
-
-        card.add(row);
-        return card;
+        bgTo = BG_DARK; bgAlpha = 1f; if (bgTimer != null) { bgTimer.stop(); bgTimer = null; } contentPanel.repaint();
     }
 
     // ── Tarjetas de evolución ─────────────────────────────────────────────────
@@ -720,12 +679,18 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
     // ── Animación de fondo ────────────────────────────────────────────────────
 
     private void animateBg(Color target) {
+        if (target.equals(bgTo)) return; // mismo color, sin animación
         if (bgTimer != null) bgTimer.stop();
-        bgTo = target; bgAlpha = 0f;
+        Color previous = bgTo;
+        bgTo = target;
+        bgAlpha = 0f;
         bgTimer = new Timer(16, null);
         bgTimer.addActionListener(e -> {
-            bgAlpha += 0.05f;
-            if (bgAlpha >= 1f) { bgAlpha = 1f; bgTimer.stop(); }
+            bgAlpha += 0.06f;
+            if (bgAlpha >= 1f) {
+                bgAlpha = 1f;
+                ((Timer)e.getSource()).stop();
+            }
             contentPanel.repaint();
         });
         bgTimer.start();
@@ -746,7 +711,7 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
                 try {
                     BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
                     if (img != null) {
-                        Image sc = img.getScaledInstance(280, 280, Image.SCALE_SMOOTH);
+                        Image sc = img.getScaledInstance(290, 290, Image.SCALE_SMOOTH);
                         SwingUtilities.invokeLater(() -> pokemonImageLabel.showGif(new ImageIcon(sc)));
                         return;
                     }
@@ -763,7 +728,6 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
     private JPanel statRow(String name, int val, Color color1, Color color2) {
         JPanel row = new JPanel(new BorderLayout(8, 0));
         row.setOpaque(false); row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
         String fn = switch (name) {
             case "hp" -> "HP"; case "attack" -> "Ataque"; case "defense" -> "Defensa";
             case "special-attack" -> "Sp. Ataque"; case "special-defense" -> "Sp. Defensa";
@@ -795,6 +759,25 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         bar.setPreferredSize(new Dimension(0, 12));
         row.add(nl, BorderLayout.WEST); row.add(bar, BorderLayout.CENTER); row.add(vl, BorderLayout.EAST);
         return row;
+    }
+
+    private JLabel typeBadge(String type) {
+        Color bg    = TYPE_COLORS.getOrDefault(type.toLowerCase(), new Color(100, 100, 130));
+        String icon = TYPE_ICONS.getOrDefault(type.toLowerCase(), "");
+        String name = TYPE_NAMES.getOrDefault(type.toLowerCase(), type.toUpperCase());
+        String text = icon.isEmpty() ? name : icon + " " + name;
+        JLabel badge = new JLabel(text) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(bg); g2.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 16, 16));
+                g2.dispose(); super.paintComponent(g);
+            }
+        };
+        badge.setFont(new Font("SansSerif", Font.BOLD, 13));
+        badge.setForeground(Color.WHITE); badge.setOpaque(false);
+        badge.setBorder(new EmptyBorder(5, 13, 5, 13));
+        return badge;
     }
 
     private JLabel infoCard(String label, String val) {
@@ -844,21 +827,40 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
         btn.setPreferredSize(new Dimension(110, 36)); return btn;
     }
 
-    private JButton arrowNavBtn(String arrow) {
+    /** Crea un botón flecha navegación dibujado a mano — sin depender de fuentes Unicode */
+    private JButton arrowNavBtn(boolean left) {
         Color bg = new Color(38, 38, 68);
-        JButton btn = new JButton(arrow) {
+        JButton btn = new JButton() {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Color c = getModel().isPressed() ? bg.darker() : getModel().isRollover() ? new Color(65, 65, 115) : bg;
-                g2.setColor(c); g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-                g2.setColor(new Color(90, 90, 150)); g2.setStroke(new BasicStroke(1.5f));
-                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 10, 10);
-                g2.dispose(); super.paintComponent(g);
+                int w = getWidth(), h = getHeight();
+                // Fondo redondeado
+                Color c = getModel().isPressed() ? bg.darker()
+                        : getModel().isRollover() ? new Color(65, 65, 115) : bg;
+                g2.setColor(c);
+                g2.fillRoundRect(0, 0, w, h, 10, 10);
+                // Borde
+                g2.setColor(new Color(90, 90, 150));
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawRoundRect(0, 0, w-1, h-1, 10, 10);
+                // Flecha dibujada con polígono
+                g2.setColor(new Color(200, 200, 245));
+                int cx = w / 2, cy = h / 2;
+                int aw = 9, ah = 12; // ancho y alto de la flecha
+                int[] px, py;
+                if (left) {
+                    px = new int[]{cx + aw/2, cx - aw/2, cx + aw/2};
+                    py = new int[]{cy - ah/2, cy,         cy + ah/2};
+                } else {
+                    px = new int[]{cx - aw/2, cx + aw/2, cx - aw/2};
+                    py = new int[]{cy - ah/2, cy,         cy + ah/2};
+                }
+                g2.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.drawPolyline(px, py, 3);
+                g2.dispose();
             }
         };
-        btn.setFont(new Font("SansSerif", Font.BOLD, 22));
-        btn.setForeground(new Color(195, 195, 240));
         btn.setOpaque(false); btn.setContentAreaFilled(false); btn.setBorderPainted(false);
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         btn.setPreferredSize(new Dimension(50, 40));
@@ -894,51 +896,79 @@ public class PokemonMainFrame extends JFrame implements PokemonView {
 
     // ── AnimatedGifLabel con halo de tipo ─────────────────────────────────────
 
-    private static class AnimatedGifLabel extends JComponent {
-        private Image  image;
+    private class AnimatedGifLabel extends JComponent {
+        private Image  gifImage;
         private String placeholder = "🎮";
-        private Color  haloColor1  = new Color(24, 24, 40);
-        private Color  haloColor2  = new Color(24, 24, 40);
+        private Color  haloColor1  = BG_DARK;
+        private Color  haloColor2  = BG_DARK;
 
         AnimatedGifLabel(int w, int h) {
             setPreferredSize(new Dimension(w, h));
             setMinimumSize(new Dimension(w, h));
             setMaximumSize(new Dimension(w, h));
-            setOpaque(false);
+            // Opaco + replica el fondo del padre manualmente → sin caja, sin flash
+            setOpaque(true);
         }
 
+        @Override public boolean isOpaque() { return true; }
+
         void setTypeColors(Color c1, Color c2) {
-            // Ya no se usa halo — fondo transparente
+            haloColor1 = c1; haloColor2 = c2; repaint();
         }
 
         void showGif(ImageIcon icon) {
-            image = icon.getImage(); placeholder = null;
-            icon.setImageObserver(this); repaint();
+            gifImage = icon.getImage();
+            placeholder = null;
+            // El ImageObserver nativo de Swing maneja los frames del GIF
+            icon.setImageObserver(this);
+            repaint();
         }
 
-        void showPlaceholder(String t) { image = null; placeholder = t; repaint(); }
+        void showPlaceholder(String t) { gifImage = null; placeholder = t; repaint(); }
 
         @Override protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
 
             int w = getWidth(), h = getHeight();
 
-            // Fondo completamente transparente — se ve el tint del panel padre
-            // (sin fillRect, sin halo, sin borde)
+            // 1. Replicar exactamente el fondo del contentPanel para que no se vea caja
+            g2.setColor(BG_DARK);
+            g2.fillRect(0, 0, w, h);
+            if (bgAlpha > 0f && bgTimer != null) {
+                int a = Math.min(50, (int)(bgAlpha * 50));
+                g2.setColor(new Color(bgTo.getRed(), bgTo.getGreen(), bgTo.getBlue(), a));
+                g2.fillRect(0, 0, w, h);
+            }
 
-            if (image != null) {
-                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                int margin = 8;
-                int sz = Math.min(w, h) - margin * 2;
-                g2.drawImage(image, (w - sz) / 2, (h - sz) / 2, sz, sz, this);
+            // 2. Halo radial del tipo encima del fondo replicado
+            float cx = w / 2f, cy = h / 2f;
+            float radius = Math.min(w, h) * 0.56f;
+            RadialGradientPaint rgp = new RadialGradientPaint(
+                    cx, cy, radius,
+                    new float[]{0f, 0.52f, 1f},
+                    new Color[]{
+                            new Color(haloColor1.getRed(), haloColor1.getGreen(), haloColor1.getBlue(), 115),
+                            new Color(haloColor2.getRed(), haloColor2.getGreen(), haloColor2.getBlue(), 50),
+                            new Color(0, 0, 0, 0)
+                    });
+            g2.setPaint(rgp);
+            g2.fillRect(0, 0, w, h);
+
+            // 3. GIF con el ImageObserver nativo (this) para que Swing maneje los frames
+            if (gifImage != null) {
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                int margin = 10, sz = Math.min(w, h) - margin * 2;
+                g2.drawImage(gifImage, (w - sz) / 2, (h - sz) / 2, sz, sz, this);
             } else if (placeholder != null) {
                 g2.setFont(new Font("SansSerif", Font.PLAIN, 52));
                 FontMetrics fm = g2.getFontMetrics();
-                g2.setColor(new Color(120, 120, 150, 180));
-                g2.drawString(placeholder, (w - fm.stringWidth(placeholder)) / 2, (h + fm.getAscent()) / 2);
+                g2.setColor(new Color(110, 110, 145));
+                g2.drawString(placeholder, (w - fm.stringWidth(placeholder)) / 2,
+                        (h + fm.getAscent()) / 2);
             }
+
             g2.dispose();
         }
     }

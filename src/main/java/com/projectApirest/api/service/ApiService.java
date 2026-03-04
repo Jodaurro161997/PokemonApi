@@ -144,7 +144,7 @@ public class ApiService {
     }
 
     /**
-     * Busca todos los Pokémon cuyo nombre empieza con el prefijo dado.
+     * Busca todos los Pokémon cuyo nombre contenga el texto dado en cualquier posición.
      * Retorna lista vacía si ninguno coincide.
      */
     public List<String> findByPrefix(String prefix) {
@@ -152,7 +152,7 @@ public class ApiService {
         List<String> all = getAllPokemonNames();
         List<String> matches = new ArrayList<>();
         for (String name : all) {
-            if (name.startsWith(p)) matches.add(name);
+            if (name.contains(p)) matches.add(name);
         }
         return matches;
     }

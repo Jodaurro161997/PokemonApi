@@ -1,104 +1,163 @@
 # Pokédex — Java MVP
 
-Aplicación de escritorio desarrollada en **Java + Swing** que consume la [PokéAPI](https://pokeapi.co/) en tiempo real para explorar información detallada de todos los Pokémon. Implementa el patrón de arquitectura **MVP (Model-View-Presenter)** con separación estricta de responsabilidades.
+Aplicación de escritorio desarrollada en Java + Swing que consume la API pública de PokéAPI en tiempo real para explorar información detallada de todos los Pokémon. Implementa el patrón arquitectónico MVP (Model–View–Presenter) con separación estricta de responsabilidades y ejecución asíncrona para no bloquear el EDT.
 
 ---
 
-## Descripción
+## 📌 Descripción
 
-La app permite buscar Pokémon por nombre o ID, navegar por listas paginadas, ver estadísticas, cadenas evolutivas, sprites animados y descripciones en español. El diseño es oscuro y reactivo: el color de fondo, las barras de stats y el halo detrás de la imagen cambian dinámicamente según el tipo del Pokémon seleccionado.
-
----
-
-## Características
-
-- 🔍 **Búsqueda inteligente** — búsqueda exacta por nombre o ID; si no hay coincidencia exacta, filtra todos los Pokémon que empiecen con el texto ingresado
-- 📋 **Lista lateral paginada** — listas de 25 Pokémon con botones "Lista anterior / Lista siguiente"
-- 🎮 **Sprites animados** — GIFs animados de la Gen V (Black/White); fallback al artwork oficial si no hay GIF
-- 🎨 **Tema dinámico por tipo** — fondo, barras de stats y halo de imagen se colorean con el tipo del Pokémon; si tiene dos tipos, las barras muestran un degradado entre ambos colores
-- 🔗 **Cadena evolutiva** — tira interactiva en la parte inferior con sprites y nombres clicables
-- 📖 **Descripción en español** — flavor text extraído de `pokemon-species`, con fallback a inglés
-- 🌍 **Tipos en español** — Fuego, Agua, Planta, Eléctrico, Psíquico, etc.
-- ⬅️➡️ **Navegación rápida** — flechas para pasar al Pokémon anterior/siguiente sin usar la lista
+La aplicación permite buscar Pokémon por nombre o ID, navegar por una lista paginada, visualizar estadísticas base, consultar la cadena evolutiva completa, mostrar sprites animados y leer descripciones en español. La interfaz utiliza un tema oscuro reactivo: el color de fondo, las barras de estadísticas y el halo detrás de la imagen cambian dinámicamente según el tipo del Pokémon seleccionado.
 
 ---
 
-## Arquitectura MVP
+## 🚀 Características
 
-```
+- 🔍 Búsqueda inteligente
+- 📋 Lista lateral paginada (25 por página)
+- 🎮 Sprites animados Gen V (fallback a artwork oficial)
+- 🎨 Tema dinámico por tipo (con degradado si tiene doble tipo)
+- 🔗 Cadena evolutiva interactiva
+- 📖 Descripción en español (fallback a inglés)
+- ⬅️➡️ Navegación rápida entre Pokémon
+
+---
+
+## 🏗 Arquitectura MVP
+
 src/main/java/com/projectApirest/api/
-├── Main.java                        ← Entry point, wiring MVP
+├── Main.java
 ├── model/
-│   └── Pokemon.java                 ← Record con todos los datos del Pokémon
+│   └── Pokemon.java
 ├── service/
-│   └── ApiService.java              ← Capa de datos: HTTP + parsing JSON
+│   └── ApiService.java
 ├── view/
-│   ├── PokemonView.java             ← Interfaz contrato de la Vista
-│   └── PokemonMainFrame.java        ← Implementación Swing (UI completa)
+│   ├── PokemonView.java
+│   └── PokemonMainFrame.java
 └── presenter/
-    └── PokemonPresenter.java        ← Lógica de negocio, acciones del usuario
-```
+└── PokemonPresenter.java
 
-| Capa | Responsabilidad |
-|---|---|
-| **Model** | Datos puros. `Pokemon` es un record inmutable. `ApiService` consume la PokéAPI con `HttpClient` (Java 11+) |
-| **View** | Solo UI. No conoce la API ni la lógica. Delega toda acción al Presenter |
-| **Presenter** | Conecta Model y View. Maneja async con `ExecutorService`, nunca bloquea el EDT |
+| Capa | Función |
+|------|---------|
+| Model | Datos y consumo HTTP |
+| View | Interfaz Swing |
+| Presenter | Lógica y orquestación asíncrona |
 
 ---
 
-## Requisitos
+## 📦 Requisitos
 
 - Java 17 o superior
 - Maven 3.6+
-- Conexión a internet (consume PokéAPI en tiempo real)
+- Conexión a internet
 
 ---
 
-## Instalación y ejecución
+## ▶️ Ejecutar el proyecto
 
-```bash
-# Clonar o copiar los archivos del proyecto
+git clone <URL_DEL_REPO>
 cd pokedex-mvp
-
-# Compilar y empaquetar (fat JAR con dependencias)
-mvn package
-
-# Ejecutar
+mvn clean package
 java -jar target/pokedex-mvp-1.0.0.jar
-```
 
 ---
 
-## Dependencias
+## 🖥 Generar ejecutable .exe en Windows
+
+Nota: Es necesario descargar Launch4j para convertir el JAR en EXE.
+
+PASO 1: Descargar Launch4j
+1. Ve a: https://sourceforge.net/projects/launch4j/files/launch4j-3/
+2. Descarga launch4j-3.50-win64.exe
+3. Ejecuta o descomprime
+
+PASO 2: Generar el JAR
+Desde IntelliJ:
+1. Ctrl + Alt + Shift + S → Artifacts
+2. + → JAR → From modules with dependencies
+3. Módulo: pokedex-mvp
+4. Main Class: com.projectApirest.api.Main
+5. Opción: extract to the target JAR
+6. OK → Apply → Build → Build Artifacts
+
+Desde Maven:
+mvn clean package
+
+PASO 3: Configurar Launch4j
+Pestaña Basic:
+- Output file: C:\projects\PokemonApi\out\Pokedex.exe
+- Jar: C:\projects\PokemonApi\out\artifacts\pokedex_mvp_jar\pokedex-mvp.jar
+- Don't wrap the jar: Desmarcado
+
+Pestaña JRE:
+- JRE path: %JAVA_HOME%;%PATH%
+- Min JRE version: 17
+- Max JRE version: (vacío)
+- JDK required: Desmarcado
+- 64-Bit required: Marcado
+
+Pestaña Header:
+- Header type: gui
+
+Pestaña Messages:
+- Runtime JRE error: "Esta aplicación requiere Java 17 o superior. Instálalo desde https://adoptium.net/"
+
+PASO 4: Guardar configuración
+1. Ctrl + S
+2. Nombre: pokedex-config.xml
+3. Guardar en: C:\projects\PokemonApi\
+4. Save
+
+PASO 5: Generar el .exe
+1. Click en ⚙️ (Build wrapper)
+2. Se generará: C:\projects\PokemonApi\out\Pokedex.exe
+
+PASO 6: Probar
+1. Ve a C:\projects\PokemonApi\out\
+2. Doble clic en Pokedex.exe
+
+---
+
+## 📊 Tamaño del ejecutable
+
+| Configuración | Tamaño | Requisitos |
+|---------------|--------|------------|
+| Sin JRE | Pocos KB | Requiere Java 17+ |
+| Con JRE embebido | 200-300 MB | Sin requisitos |
+
+---
+
+## 🔄 Alternativa: jpackage (Java 14+)
+
+jpackage --input target/ --name Pokedex --main-jar pokedex-mvp-1.0.0.jar --main-class com.projectApirest.api.Main --type exe
+
+---
+
+## 📚 Dependencias
 
 | Librería | Versión | Uso |
-|---|---|---|
-| `org.json:json` | 20231013 | Parsing de respuestas JSON de la PokéAPI |
-
-El JAR se genera como **fat JAR** (shaded) con el plugin `maven-shade-plugin`, sin necesidad de instalar dependencias por separado.
+|----------|---------|-----|
+| org.json:json | 20231013 | Parsing JSON |
 
 ---
 
-## Endpoints utilizados
+## 🌐 Endpoints utilizados
 
 | Endpoint | Uso |
-|---|---|
-| `GET /pokemon/{id}` | Datos principales del Pokémon |
-| `GET /pokemon-species/{id}` | Descripción (flavor text) en español/inglés |
-| `GET /evolution-chain/{id}` | Cadena evolutiva completa |
-| `GET /pokemon?limit=2000` | Lista completa de nombres (caché en memoria para búsqueda por prefijo) |
-| GitHub raw sprites | GIFs animados Gen V |
+|----------|-----|
+| GET /pokemon/{id} | Datos principales |
+| GET /pokemon-species/{id} | Descripción |
+| GET /evolution-chain/{id} | Cadena evolutiva |
+| GET /pokemon?limit=2000 | Lista completa |
 
 ---
 
-## Capturas de pantalla
+## 🙌 Créditos
 
-> _La interfaz muestra el Pokémon con su sprite animado, halo de tipo, estadísticas con barras degradadas, descripción en español y cadena evolutiva interactiva en la parte inferior._
+Datos: PokéAPI (https://pokeapi.co/)
+Sprites: PokeAPI/sprites (https://github.com/PokeAPI/sprites)
 
 ---
 
-## Créditos
+## 📄 Licencia
 
-- Datos: [PokéAPI](https://pokeapi.co/) — API abierta y gratuita
-- Sprites animados: [PokeAPI/sprites](https://github.com/PokeAPI/sprites) en GitHub
+MIT License
